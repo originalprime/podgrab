@@ -232,17 +232,22 @@ func GetPodcastEpisodeStats() (*[]PodcastItemStatsModel, error) {
 func GetPodcastEpisodeDiskStats() (PodcastItemConsolidateDiskStatsModel, error) {
 	var stats []PodcastItemDiskStatsModel
 	result := DB.Model(&PodcastItem{}).Select("download_status,count(1) as count,sum(file_size) as size").Group("download_status").Find(&stats)
-	dict := make(map[DownloadStatus]int64)
+	sizeDict := make(map[DownloadStatus]int64)
+	countDict := make(map[DownloadStatus]int64)
 	for _, stat := range stats {
-		dict[stat.DownloadStatus] = stat.Size
+		sizeDict[stat.DownloadStatus] = stat.Size
+		countDict[stat.DownloadStatus] = int64(stat.Count)
 	}
 
 	toReturn := PodcastItemConsolidateDiskStatsModel{
-		Downloaded:      dict[Downloaded],
-		Downloading:     dict[Downloading],
-		Deleted:         dict[Deleted],
-		NotDownloaded:   dict[NotDownloaded],
-		PendingDownload: dict[NotDownloaded] + dict[Downloading],
+		Downloaded:    sizeDict[Downloaded],
+		Downloading:   sizeDict[Downloading],
+		Deleted:       sizeDict[Deleted],
+		NotDownloaded: sizeDict[NotDownloaded],
+		// Count-based, not byte-based: file_size for not-yet-downloaded episodes
+		// is almost never populated ahead of time, so a byte sum here is unreliable.
+		// A count of items queued or actively downloading is always accurate.
+		PendingDownloadCount: countDict[NotDownloaded] + countDict[Downloading],
 	}
 
 	return toReturn, result.Error

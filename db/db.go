@@ -20,7 +20,12 @@ func Init() (*gorm.DB, error) {
 	configPath := os.Getenv("CONFIG")
 	dbPath := path.Join(configPath, "podgrab.db")
 	log.Println(dbPath)
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+	// _journal_mode=WAL: readers no longer block writers (and vice versa), which
+	// matters once background downloads and web requests are hitting the DB at
+	// the same time. _busy_timeout: have SQLite retry briefly on a lock instead
+	// of immediately returning "database is locked".
+	dsn := dbPath + "?_journal_mode=WAL&_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	if err != nil {
 		fmt.Println("db err: ", err)
 		return nil, err
@@ -28,6 +33,7 @@ func Init() (*gorm.DB, error) {
 
 	localDB, _ := db.DB()
 	localDB.SetMaxIdleConns(10)
+	localDB.SetMaxOpenConns(10)
 	//db.LogMode(true)
 	DB = db
 	return DB, nil
