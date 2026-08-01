@@ -1,0 +1,31 @@
+# Git internals - not needed inside the image, and large
+.git
+.gitignore
+
+# macOS metadata files - these break Docker's build context reader
+._*
+.DS_Store
+
+# Editor/IDE cruft
+.vscode
+*.swp
+
+# Patch/diff files - not part of the app, just used to apply changes
+*.patch
+*.diff
+
+# Local runtime data - these are mounted as volumes at runtime, never baked into the image
+assets/*
+keys/*
+backups/*
+config/*
+*.db
+
+# Go build artifacts, in case any exist locally
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
