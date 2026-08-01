@@ -37,7 +37,7 @@ type Podcast struct {
 //PodcastItem is
 type PodcastItem struct {
 	Base
-	PodcastID string
+	PodcastID string `gorm:"index"`
 	Podcast   Podcast
 	Title     string
 	Summary   string `gorm:"type:text"`
@@ -50,12 +50,12 @@ type PodcastItem struct {
 
 	FileURL string
 
-	GUID  string
+	GUID  string `gorm:"index"`
 	Image string
 
 	DownloadDate   time.Time
 	DownloadPath   string
-	DownloadStatus DownloadStatus `gorm:"default:0"`
+	DownloadStatus DownloadStatus `gorm:"default:0;index"`
 
 	IsPlayed bool `gorm:"default:false"`
 
@@ -128,9 +128,9 @@ type PodcastItemDiskStatsModel struct {
 }
 
 type PodcastItemConsolidateDiskStatsModel struct {
-	Downloaded      int64
-	Downloading     int64
-	NotDownloaded   int64
-	Deleted         int64
-	PendingDownload int64
+	Downloaded           int64
+	Downloading          int64
+	NotDownloaded        int64
+	Deleted              int64
+	PendingDownloadCount int64
 }

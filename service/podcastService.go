@@ -462,6 +462,16 @@ func SetPodcastItemAsDownloaded(id string, location string) error {
 
 	return db.UpdatePodcastItem(&podcastItem)
 }
+func SetPodcastItemAsDownloading(id string) error {
+	var podcastItem db.PodcastItem
+	err := db.GetPodcastItemById(id, &podcastItem)
+	if err != nil {
+		return err
+	}
+	podcastItem.DownloadStatus = db.Downloading
+
+	return db.UpdatePodcastItem(&podcastItem)
+}
 func SetPodcastItemAsNotDownloaded(id string, downloadStatus db.DownloadStatus) error {
 	var podcastItem db.PodcastItem
 	err := db.GetPodcastItemById(id, &podcastItem)
@@ -533,7 +543,13 @@ func DownloadMissingEpisodes() error {
 		wg.Add(1)
 		go func(item db.PodcastItem, setting db.Setting) {
 			defer wg.Done()
-			url, _ := Download(item.FileURL, item.Title, item.Podcast.Title, GetPodcastPrefix(&item, &setting))
+			SetPodcastItemAsDownloading(item.ID)
+			url, err := Download(item.FileURL, item.Title, item.Podcast.Title, GetPodcastPrefix(&item, &setting))
+			if err != nil {
+				fmt.Println("Error downloading episode: ", item.ID, err.Error())
+				SetPodcastItemAsNotDownloaded(item.ID, db.NotDownloaded)
+				return
+			}
 			SetPodcastItemAsDownloaded(item.ID, url)
 		}(item, *setting)
 
@@ -599,11 +615,13 @@ func DownloadSingleEpisode(podcastItemId string) error {
 
 	setting := db.GetOrCreateSetting()
 	SetPodcastItemAsQueuedForDownload(podcastItemId)
+	SetPodcastItemAsDownloading(podcastItemId)
 
 	url, err := Download(podcastItem.FileURL, podcastItem.Title, podcastItem.Podcast.Title, GetPodcastPrefix(&podcastItem, setting))
 
 	if err != nil {
 		fmt.Println(err.Error())
+		SetPodcastItemAsNotDownloaded(podcastItem.ID, db.NotDownloaded)
 		return err
 	}
 	err = SetPodcastItemAsDownloaded(podcastItem.ID, url)
