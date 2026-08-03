@@ -645,3 +645,13 @@ func UpdateSetting(c *gin.Context) {
 	}
 
 }
+
+// RescanDiskUsage kicks off a fresh filesystem disk-usage scan in the
+// background and returns immediately - a full scan over a large library can
+// take real time, so this mirrors the existing fire-and-forget pattern used
+// elsewhere (e.g. DownloadAllEpisodesByPodcastId) rather than blocking the
+// request until it finishes.
+func RescanDiskUsage(c *gin.Context) {
+	go service.RunDiskUsageScan()
+	c.JSON(200, gin.H{"message": "Disk usage scan started"})
+}

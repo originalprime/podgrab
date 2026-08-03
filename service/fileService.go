@@ -407,3 +407,86 @@ func checkError(err error) {
 		panic(err)
 	}
 }
+
+// DiskUsageScanResult is the outcome of walking the assets directory on disk
+// and cross-referencing every file found against what Podgrab's database
+// actually knows about.
+type DiskUsageScanResult struct {
+	TotalBytes      int64
+	KnownBytes      int64
+	OrphanBytes     int64
+	TotalFileCount  int
+	OrphanFileCount int
+}
+
+// ScanDiskUsage walks the configured assets directory on disk and classifies
+// every file as "known" (its path matches a DownloadPath Podgrab has on
+// record) or "orphan" (present on disk, but not tracked by this instance -
+// e.g. copied over from a previous install, or downloaded outside Podgrab).
+//
+// This deliberately reads the real file size off disk via the filesystem,
+// rather than trusting the database's cached FileSize column, since the
+// whole point is to be accurate even when the database is incomplete or
+// stale.
+func ScanDiskUsage() (DiskUsageScanResult, error) {
+	var result DiskUsageScanResult
+
+	dataPath := os.Getenv("DATA")
+	if dataPath == "" {
+		return result, errors.New("DATA path is not configured")
+	}
+
+	knownPaths, err := db.GetAllKnownDownloadPaths()
+	if err != nil {
+		return result, err
+	}
+	knownSet := make(map[string]bool, len(knownPaths))
+	for _, p := range knownPaths {
+		if p != "" {
+			knownSet[filepath.Clean(p)] = true
+		}
+	}
+
+	err = filepath.Walk(dataPath, func(walkPath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			// Skip anything unreadable (permissions, broken symlinks, etc.)
+			// rather than aborting the whole scan over one bad file.
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+
+		size := info.Size()
+		result.TotalBytes += size
+		result.TotalFileCount++
+
+		if knownSet[filepath.Clean(walkPath)] {
+			result.KnownBytes += size
+		} else {
+			result.OrphanBytes += size
+			result.OrphanFileCount++
+		}
+		return nil
+	})
+	if err != nil {
+		return result, err
+	}
+
+	return result, nil
+}
+
+// RunDiskUsageScan runs ScanDiskUsage and persists the result so the Settings
+// page can display it without re-scanning on every load. Intended to be
+// called both periodically (cron) and on-demand (manual "Rescan" button).
+func RunDiskUsageScan() {
+	result, err := ScanDiskUsage()
+	if err != nil {
+		fmt.Println("Error scanning disk usage: ", err.Error())
+		return
+	}
+	err = db.SaveDiskScanResult(result.TotalBytes, result.KnownBytes, result.OrphanBytes, result.OrphanFileCount)
+	if err != nil {
+		fmt.Println("Error saving disk scan result: ", err.Error())
+	}
+}

@@ -121,18 +121,58 @@
         <h3>Disk Stats</h3>
         <table>
             <tr>
-                <td>Disk Used</td>
+                <td>Disk Used (tracked by Podgrab)</td>
                 <td>{{formatFileSize .diskStats.Downloaded}}</td>
             </tr>
             <tr>
                 <td>Pending Download</td>
                 <td>{{ .diskStats.PendingDownloadCount }} episode(s)</td>
             </tr>
+            <tr>
+                <td>Actual Disk Used (assets folder, on disk)</td>
+                <td>{{formatFileSize .setting.DiskScanTotalBytes}}</td>
+            </tr>
+            <tr>
+                <td>Untracked/Orphaned Data</td>
+                <td>{{formatFileSize .setting.DiskScanOrphanBytes}} ({{ .setting.DiskScanOrphanFileCount }} file(s))</td>
+            </tr>
+            <tr>
+                <td>Last Scanned</td>
+                <td>
+                    {{if isDateNull .setting.LastDiskScanTime}}
+                        Never
+                    {{else}}
+                        {{ naturalDate .setting.LastDiskScanTime }}
+                    {{end}}
+                </td>
+            </tr>
         </table>
+        <button class="button" onclick="rescanDiskUsage()">Rescan Now</button>
     </div>
 </div>
 </div>
 <hr>
+<script>
+function rescanDiskUsage(){
+    axios.get("/settings/diskUsage/rescan")
+    .then(function(response){
+        Vue.toasted.show('Disk usage scan started. Refresh this page in a bit to see updated numbers.' ,{
+                    theme: "bubble",
+                    position: "top-right",
+                    type: "info",
+                    duration : 5000
+                });
+    })
+    .catch(function(error){
+        Vue.toasted.show('Failed to start disk usage scan.' ,{
+                    theme: "bubble",
+                    position: "top-right",
+                    type: "error",
+                    duration : 5000
+                });
+    });
+}
+</script>
 <div class="row">
     <div class="columns twelve">
         <h3>More Info</h3>
