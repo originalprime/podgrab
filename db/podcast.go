@@ -89,6 +89,15 @@ type Setting struct {
 	BaseUrl                       string
 	MaxDownloadConcurrency        int `gorm:"default:5"`
 	UserAgent                     string
+
+	// Cached results from the last filesystem disk-usage scan (see ScanDiskUsage).
+	// Populated by a periodic background job and by the manual "Rescan" trigger,
+	// not by the user - deliberately left out of the settings edit form/UpdateSettings.
+	LastDiskScanTime        time.Time
+	DiskScanTotalBytes      int64
+	DiskScanKnownBytes      int64
+	DiskScanOrphanBytes     int64
+	DiskScanOrphanFileCount int
 }
 type Migration struct {
 	Base

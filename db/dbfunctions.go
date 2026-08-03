@@ -321,6 +321,30 @@ func UpdateSettings(setting *Setting) error {
 	tx := DB.Save(&setting)
 	return tx.Error
 }
+
+// GetAllKnownDownloadPaths returns every non-empty DownloadPath Podgrab has on
+// record, regardless of status. Used to classify files found on disk as
+// "known" (downloaded by this instance) vs "orphan" (present on disk but not
+// tracked in the database).
+func GetAllKnownDownloadPaths() ([]string, error) {
+	var paths []string
+	result := DB.Model(&PodcastItem{}).Where("download_path != ?", "").Pluck("download_path", &paths)
+	return paths, result.Error
+}
+
+// SaveDiskScanResult persists the result of a filesystem disk-usage scan onto
+// the Setting singleton, so the Settings page can display it instantly
+// without re-walking the filesystem on every request.
+func SaveDiskScanResult(totalBytes int64, knownBytes int64, orphanBytes int64, orphanFileCount int) error {
+	setting := GetOrCreateSetting()
+	setting.LastDiskScanTime = time.Now()
+	setting.DiskScanTotalBytes = totalBytes
+	setting.DiskScanKnownBytes = knownBytes
+	setting.DiskScanOrphanBytes = orphanBytes
+	setting.DiskScanOrphanFileCount = orphanFileCount
+	return UpdateSettings(setting)
+}
+
 func GetOrCreateSetting() *Setting {
 	var setting Setting
 	result := DB.First(&setting)
