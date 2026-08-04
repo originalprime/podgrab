@@ -190,6 +190,7 @@ func main() {
 	router.GET("/settings", controllers.SettingsPage)
 	router.POST("/settings", controllers.UpdateSetting)
 	router.GET("/settings/diskUsage/rescan", controllers.RescanDiskUsage)
+	router.GET("/settings/library/ingest", controllers.IngestLibrary)
 	router.GET("/backups", controllers.BackupsPage)
 	router.POST("/opml", controllers.UploadOpml)
 	router.GET("/opml", controllers.GetOmpl)
@@ -233,6 +234,8 @@ func intiCron() {
 	gocron.Every(uint64(checkFrequency) * 3).Minutes().Do(service.UpdateAllFileSizes)
 	gocron.Every(uint64(checkFrequency)).Minutes().Do(service.DownloadMissingImages)
 	gocron.Every(uint64(checkFrequency) * 6).Minutes().Do(service.RunDiskUsageScan)
+	gocron.Every(uint64(checkFrequency)).Minutes().Do(service.BackfillFileHashes)
+	gocron.Every(uint64(checkFrequency) * 6).Minutes().Do(service.IngestLibrary)
 	gocron.Every(2).Days().Do(service.CreateBackup)
 	<-gocron.Start()
 }

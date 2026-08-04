@@ -149,6 +149,33 @@
         </table>
         <button class="button" onclick="rescanDiskUsage()">Rescan Now</button>
     </div>
+    <div class="row">
+        <h3>Library Ingest</h3>
+        <p>Matches files found on disk that Podgrab doesn't already track against your podcasts, auto-creating or linking episodes where it safely can. Duplicates are flagged, never deleted automatically.</p>
+        <table>
+            <tr>
+                <td>Auto-created episodes</td>
+                <td>{{ index .orphanCounts 2 }}</td>
+            </tr>
+            <tr>
+                <td>Auto-linked to existing episodes</td>
+                <td>{{ index .orphanCounts 1 }}</td>
+            </tr>
+            <tr>
+                <td>Flagged as duplicates</td>
+                <td>{{ index .orphanCounts 3 }}</td>
+            </tr>
+            <tr>
+                <td>Unmatched (needs manual review)</td>
+                <td>{{ index .orphanCounts 0 }}</td>
+            </tr>
+            <tr>
+                <td>Non-audio files found (cover art, etc.)</td>
+                <td>{{ index .orphanCounts 5 }}</td>
+            </tr>
+        </table>
+        <button class="button" onclick="ingestLibrary()">Ingest Library Now</button>
+    </div>
 </div>
 </div>
 <hr>
@@ -165,6 +192,25 @@ function rescanDiskUsage(){
     })
     .catch(function(error){
         Vue.toasted.show('Failed to start disk usage scan.' ,{
+                    theme: "bubble",
+                    position: "top-right",
+                    type: "error",
+                    duration : 5000
+                });
+    });
+}
+function ingestLibrary(){
+    axios.get("/settings/library/ingest")
+    .then(function(response){
+        Vue.toasted.show('Library ingest started - this can take a while for a large backlog. Refresh this page in a bit to see the counts update.' ,{
+                    theme: "bubble",
+                    position: "top-right",
+                    type: "info",
+                    duration : 8000
+                });
+    })
+    .catch(function(error){
+        Vue.toasted.show('Failed to start library ingest.' ,{
                     theme: "bubble",
                     position: "top-right",
                     type: "error",

@@ -655,3 +655,15 @@ func RescanDiskUsage(c *gin.Context) {
 	go service.RunDiskUsageScan()
 	c.JSON(200, gin.H{"message": "Disk usage scan started"})
 }
+
+// IngestLibrary matches files on disk that Podgrab doesn't yet know about
+// against known podcasts/episodes, auto-creating or auto-linking episode
+// records where it can and flagging duplicates and unmatched files for
+// review. Runs in the background and returns immediately - a full run over
+// a large backlog (hashing every file, reading tags) can take real time,
+// and a large library risks a browser/proxy timeout if this blocked the
+// request. Results show up via the counts on the next Settings page load.
+func IngestLibrary(c *gin.Context) {
+	go service.IngestLibrary()
+	c.JSON(200, gin.H{"message": "Library ingest started"})
+}

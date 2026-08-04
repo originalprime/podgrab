@@ -41,7 +41,7 @@ func Init() (*gorm.DB, error) {
 
 //Migrate Database
 func Migrate() {
-	DB.AutoMigrate(&Podcast{}, &PodcastItem{}, &Setting{}, &Migration{}, &JobLock{}, &Tag{})
+	DB.AutoMigrate(&Podcast{}, &PodcastItem{}, &Setting{}, &Migration{}, &JobLock{}, &Tag{}, &OrphanFile{})
 	RunMigrations()
 }
 

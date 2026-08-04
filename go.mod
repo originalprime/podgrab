@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/TheHippo/podcastindex v1.0.0
 	github.com/antchfx/xmlquery v1.3.3
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/gin-contrib/location v0.0.2
 	github.com/gin-gonic/gin v1.7.2
 	github.com/gobeam/stringy v0.0.0-20200717095810-8a3637503f62
