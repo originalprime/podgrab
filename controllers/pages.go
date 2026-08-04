@@ -239,12 +239,19 @@ func OrphanFilesPage(c *gin.Context) {
 		}
 	}
 	itemTitles := make(map[string]string)
+	itemPaths := make(map[string]string)
 	if len(itemIds) > 0 {
 		if items, err := db.GetAllPodcastItemsByIds(itemIds); err == nil {
 			for _, item := range *items {
 				itemTitles[item.ID] = item.Title
+				itemPaths[item.ID] = item.DownloadPath
 			}
 		}
+	}
+
+	var folderGroups []service.UnmatchedFolderSummary
+	if db.OrphanFileStatus(status) == db.OrphanUnmatched {
+		folderGroups, _ = service.GetUnmatchedFolderSummary()
 	}
 
 	podcasts := service.GetAllPodcasts("title")
@@ -254,6 +261,8 @@ func OrphanFilesPage(c *gin.Context) {
 		"setting":      setting,
 		"orphanFiles":  orphanFiles,
 		"itemTitles":   itemTitles,
+		"itemPaths":    itemPaths,
+		"folderGroups": folderGroups,
 		"podcasts":     podcasts,
 		"status":       status,
 		"page":         page,

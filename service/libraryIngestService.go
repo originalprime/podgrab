@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -420,6 +421,84 @@ func DeleteOrphanFileFromDisk(orphanFileId string) error {
 	orphan.Status = db.OrphanIgnored
 	orphan.Notes = "Deleted from disk on " + time.Now().Format(time.RFC3339)
 	return db.UpdateOrphanFile(orphan)
+}
+
+// UnmatchedFolderSummary describes one folder-worth of unmatched files, so
+// hundreds of files under a single podcast folder can be reviewed and
+// assigned as one group instead of one row at a time.
+type UnmatchedFolderSummary struct {
+	FolderName string
+	Count      int
+}
+
+// GetUnmatchedFolderSummary groups every OrphanUnmatched file by its
+// top-level assets folder, for display on the Review Files page.
+func GetUnmatchedFolderSummary() ([]UnmatchedFolderSummary, error) {
+	dataPath := os.Getenv("DATA")
+	unmatched, err := db.GetAllOrphanFilesByStatus(db.OrphanUnmatched)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]int)
+	for _, o := range unmatched {
+		counts[podcastFolderName(dataPath, o.FilePath)]++
+	}
+	summaries := make([]UnmatchedFolderSummary, 0, len(counts))
+	for folder, count := range counts {
+		summaries = append(summaries, UnmatchedFolderSummary{FolderName: folder, Count: count})
+	}
+	sort.Slice(summaries, func(i, j int) bool { return summaries[i].FolderName < summaries[j].FolderName })
+	return summaries, nil
+}
+
+// AssignFolderToPodcast assigns every currently-unmatched file under a given
+// top-level folder to one podcast in a single action - the bulk equivalent
+// of clicking "Assign" on each file individually. Reuses
+// AssignOrphanFileToPodcast per file, so the same duplicate-check ->
+// title-match -> create-new decision applies to each one.
+func AssignFolderToPodcast(folderName string, podcastId string) (int, error) {
+	dataPath := os.Getenv("DATA")
+	if dataPath == "" {
+		return 0, fmt.Errorf("DATA path is not configured")
+	}
+	unmatched, err := db.GetAllOrphanFilesByStatus(db.OrphanUnmatched)
+	if err != nil {
+		return 0, err
+	}
+	assigned := 0
+	for i := range unmatched {
+		if podcastFolderName(dataPath, unmatched[i].FilePath) != folderName {
+			continue
+		}
+		if err := AssignOrphanFileToPodcast(unmatched[i].ID, podcastId); err != nil {
+			fmt.Println("Error during bulk folder assign: ", unmatched[i].FilePath, err.Error())
+			continue // best-effort - one bad file shouldn't stop the rest of the folder
+		}
+		assigned++
+	}
+	return assigned, nil
+}
+
+// DeleteAllDuplicatesFromDisk permanently deletes every file currently
+// flagged OrphanDuplicate. Same restriction as the single-file version -
+// only ever touches files already confirmed as duplicates - just applied to
+// all of them in one action instead of one at a time.
+func DeleteAllDuplicatesFromDisk() (int, int64, error) {
+	duplicates, err := db.GetAllOrphanFilesByStatus(db.OrphanDuplicate)
+	if err != nil {
+		return 0, 0, err
+	}
+	deletedCount := 0
+	var freedBytes int64
+	for i := range duplicates {
+		if err := DeleteOrphanFileFromDisk(duplicates[i].ID); err != nil {
+			fmt.Println("Error during bulk duplicate delete: ", duplicates[i].FilePath, err.Error())
+			continue
+		}
+		deletedCount++
+		freedBytes += duplicates[i].FileSize
+	}
+	return deletedCount, freedBytes, nil
 }
 
 func ingestOneFile(dataPath string, filePath string, fileSize int64, existing *db.OrphanFile, caches *ingestCaches, result *IngestLibraryResult) {
