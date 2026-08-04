@@ -64,6 +64,10 @@ type PodcastItem struct {
 	LocalImage string
 
 	FileSize int64
+	// SHA-256 of the downloaded file's contents. Populated lazily (see
+	// BackfillFileHashes) - used to detect when a file being ingested from
+	// disk is actually a duplicate of an episode Podgrab already has.
+	FileHash string `gorm:"index"`
 }
 
 type DownloadStatus int
@@ -142,4 +146,58 @@ type PodcastItemConsolidateDiskStatsModel struct {
 	NotDownloaded        int64
 	Deleted              int64
 	PendingDownloadCount int64
+}
+
+type OrphanFileStatus int
+
+const (
+	// OrphanUnmatched: file's folder didn't correspond to any known podcast.
+	// Needs manual assignment (Phase 3) - Podgrab won't guess a subscription
+	// into existence from a folder name alone.
+	OrphanUnmatched OrphanFileStatus = iota
+	// OrphanAutoLinked: matched an existing PodcastItem (by normalized title)
+	// that had no file yet - linked directly, no new record created.
+	OrphanAutoLinked
+	// OrphanAutoCreated: podcast was known but no existing episode matched,
+	// so a new PodcastItem was created from the file's own metadata.
+	OrphanAutoCreated
+	// OrphanDuplicate: content hash matched an episode Podgrab already has
+	// (either a pre-existing download, or another file ingested in this same
+	// run). Never auto-deleted - flagged for the user to review and remove
+	// manually if they choose to.
+	OrphanDuplicate
+	// OrphanIgnored: user has reviewed this and asked Podgrab to leave it alone.
+	OrphanIgnored
+	// OrphanNonAudio: a real, non-junk file (cover art, .nfo, etc.) that
+	// Podgrab recognized as something other than an episode. Recorded for
+	// visibility and disk-usage accounting, but never matched or turned
+	// into an episode record.
+	OrphanNonAudio
+)
+
+// OrphanFile records what the library-ingest scan found and decided for a
+// single file on disk that wasn't already tracked by Podgrab. This is what
+// makes ingestion idempotent - a file already recorded here (in any status)
+// is skipped on subsequent scans, so re-running the scan never re-litigates
+// a decision or duplicates work.
+type OrphanFile struct {
+	Base
+	FilePath string `gorm:"uniqueIndex"`
+	FileSize int64
+	FileHash string `gorm:"index"`
+
+	// Best-guess title Podgrab extracted for this file (ID3 tag, else a
+	// cleaned-up filename) - shown to the user, and used as the title for
+	// any auto-created episode.
+	DetectedTitle string
+
+	Status OrphanFileStatus `gorm:"default:0;index"`
+
+	// Podcast this file's folder matched, if any (empty for OrphanUnmatched).
+	PodcastID string `gorm:"index"`
+	// The PodcastItem this file ended up linked to or duplicating, if any -
+	// covers OrphanAutoLinked, OrphanAutoCreated, and OrphanDuplicate.
+	PodcastItemID string `gorm:"index"`
+
+	Notes string
 }

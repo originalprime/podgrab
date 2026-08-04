@@ -190,10 +190,12 @@ func SettingsPage(c *gin.Context) {
 
 	setting := c.MustGet("setting").(*db.Setting)
 	diskStats, _ := db.GetPodcastEpisodeDiskStats()
+	orphanCounts, _ := db.GetOrphanFileCountsByStatus()
 	c.HTML(http.StatusOK, "settings.html", gin.H{
-		"setting":   setting,
-		"title":     "Update your preferences",
-		"diskStats": diskStats,
+		"setting":      setting,
+		"title":        "Update your preferences",
+		"diskStats":    diskStats,
+		"orphanCounts": orphanCounts,
 	})
 
 }

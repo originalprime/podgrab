@@ -322,14 +322,22 @@ func UpdateSettings(setting *Setting) error {
 	return tx.Error
 }
 
-// GetAllKnownDownloadPaths returns every non-empty DownloadPath Podgrab has on
-// record, regardless of status. Used to classify files found on disk as
-// "known" (downloaded by this instance) vs "orphan" (present on disk but not
-// tracked in the database).
+// GetAllKnownDownloadPaths returns every non-empty DownloadPath or LocalImage
+// Podgrab has on record, regardless of status. Used to classify files found
+// on disk as "known" (downloaded by this instance) vs "orphan" (present on
+// disk but not tracked in the database). LocalImage is included because
+// Podgrab writes per-episode cover art to disk without ever purging those
+// paths from the DB record - they're just as "known" as the audio file.
 func GetAllKnownDownloadPaths() ([]string, error) {
-	var paths []string
-	result := DB.Model(&PodcastItem{}).Where("download_path != ?", "").Pluck("download_path", &paths)
-	return paths, result.Error
+	var downloadPaths []string
+	if result := DB.Model(&PodcastItem{}).Where("download_path != ?", "").Pluck("download_path", &downloadPaths); result.Error != nil {
+		return nil, result.Error
+	}
+	var imagePaths []string
+	if result := DB.Model(&PodcastItem{}).Where("local_image != ?", "").Pluck("local_image", &imagePaths); result.Error != nil {
+		return nil, result.Error
+	}
+	return append(downloadPaths, imagePaths...), nil
 }
 
 // SaveDiskScanResult persists the result of a filesystem disk-usage scan onto
@@ -343,6 +351,70 @@ func SaveDiskScanResult(totalBytes int64, knownBytes int64, orphanBytes int64, o
 	setting.DiskScanOrphanBytes = orphanBytes
 	setting.DiskScanOrphanFileCount = orphanFileCount
 	return UpdateSettings(setting)
+}
+
+// GetOrphanFileByPath returns the existing OrphanFile record for a path, if
+// any. A non-nil result means this path has already been through the
+// ingest scan and should be skipped - this is what makes re-running the
+// scan idempotent.
+func GetOrphanFileByPath(filePath string) (*OrphanFile, error) {
+	var orphanFile OrphanFile
+	result := DB.Where(&OrphanFile{FilePath: filePath}).First(&orphanFile)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &orphanFile, result.Error
+}
+
+func CreateOrphanFile(orphanFile *OrphanFile) error {
+	tx := DB.Create(&orphanFile)
+	return tx.Error
+}
+
+func UpdateOrphanFile(orphanFile *OrphanFile) error {
+	tx := DB.Save(&orphanFile)
+	return tx.Error
+}
+
+func GetOrphanFileCountsByStatus() (map[OrphanFileStatus]int64, error) {
+	type row struct {
+		Status OrphanFileStatus
+		Count  int64
+	}
+	var rows []row
+	result := DB.Model(&OrphanFile{}).Select("status, count(1) as count").Group("status").Find(&rows)
+	counts := make(map[OrphanFileStatus]int64)
+	for _, r := range rows {
+		counts[r.Status] = r.Count
+	}
+	return counts, result.Error
+}
+
+// GetPodcastItemHashesByPodcastId returns a hash -> PodcastItemID map for
+// every downloaded episode of a podcast that has a known FileHash. Used to
+// detect when a file being ingested from disk is a duplicate of something
+// Podgrab already has downloaded, scoped to that one podcast (matching the
+// per-podcast folder association the ingest scan already relies on).
+func GetPodcastItemHashesByPodcastId(podcastId string) (map[string]string, error) {
+	var items []PodcastItem
+	result := DB.Select("id, file_hash").Where("podcast_id = ? AND file_hash != ?", podcastId, "").Find(&items)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	hashes := make(map[string]string, len(items))
+	for _, item := range items {
+		hashes[item.FileHash] = item.ID
+	}
+	return hashes, nil
+}
+
+// GetPodcastItemsMissingHash returns downloaded episodes that don't have a
+// FileHash yet, so BackfillFileHashes can catch up incrementally rather than
+// re-hashing the whole library every run.
+func GetPodcastItemsMissingHash(limit int) (*[]PodcastItem, error) {
+	var items []PodcastItem
+	result := DB.Where("download_status = ? AND download_path != ? AND file_hash = ?", Downloaded, "", "").Limit(limit).Find(&items)
+	return &items, result.Error
 }
 
 func GetOrCreateSetting() *Setting {
