@@ -238,8 +238,14 @@ func IngestLibrary() IngestLibraryResult {
 			result.Errors++
 			return nil
 		}
-		if existing != nil {
-			return nil // already processed in a previous run
+		// Unlike every other status, Unmatched isn't a resolved outcome - it
+		// just means no podcast matched *last time*. The set of known
+		// podcasts can change between runs (exactly what happened when a
+		// podcast gets added to Podgrab after its files were already on
+		// disk), so unmatched files get another look on every run instead
+		// of being skipped forever.
+		if existing != nil && existing.Status != db.OrphanUnmatched {
+			return nil // already resolved in a previous run
 		}
 
 		fileName := info.Name()
@@ -247,11 +253,13 @@ func IngestLibrary() IngestLibraryResult {
 			return nil // OS/filesystem metadata - not worth even recording
 		}
 		if !isAudioFile(fileName) {
-			recordNonAudioFile(dataPath, cleanPath, info.Size(), &result)
+			if existing == nil {
+				recordNonAudioFile(dataPath, cleanPath, info.Size(), &result)
+			}
 			return nil
 		}
 
-		ingestOneFile(dataPath, cleanPath, info.Size(), caches, &result)
+		ingestOneFile(dataPath, cleanPath, info.Size(), existing, caches, &result)
 		return nil
 	})
 	if walkErr != nil {
@@ -414,13 +422,16 @@ func DeleteOrphanFileFromDisk(orphanFileId string) error {
 	return db.UpdateOrphanFile(orphan)
 }
 
-func ingestOneFile(dataPath string, filePath string, fileSize int64, caches *ingestCaches, result *IngestLibraryResult) {
+func ingestOneFile(dataPath string, filePath string, fileSize int64, existing *db.OrphanFile, caches *ingestCaches, result *IngestLibraryResult) {
 	folderName := podcastFolderName(dataPath, filePath)
 	podcast, podcastKnown := caches.podcastByFolder[normalizeForMatch(folderName)]
 
 	title := detectedTitleFor(filePath)
 
 	if !podcastKnown {
+		if existing != nil {
+			return // still unmatched, no change - don't touch it again
+		}
 		orphan := &db.OrphanFile{
 			FilePath:      filePath,
 			FileSize:      fileSize,
@@ -448,7 +459,7 @@ func ingestOneFile(dataPath string, filePath string, fileSize int64, caches *ing
 		return
 	}
 	if existingItemID, isDuplicate := hashes[hash]; isDuplicate {
-		saveOrphan(filePath, fileSize, hash, title, db.OrphanDuplicate, podcast.ID, existingItemID, result, &result.Duplicate)
+		saveOrphan(existing, filePath, fileSize, hash, title, db.OrphanDuplicate, podcast.ID, existingItemID, result, &result.Duplicate)
 		return
 	}
 
@@ -470,13 +481,13 @@ func ingestOneFile(dataPath string, filePath string, fileSize int64, caches *ing
 				return
 			}
 			hashes[hash] = matchedItem.ID
-			saveOrphan(filePath, fileSize, hash, title, db.OrphanAutoLinked, podcast.ID, matchedItem.ID, result, &result.AutoLinked)
+			saveOrphan(existing, filePath, fileSize, hash, title, db.OrphanAutoLinked, podcast.ID, matchedItem.ID, result, &result.AutoLinked)
 			return
 		}
 		// Title matches an episode that's already downloaded elsewhere -
 		// almost certainly the same episode, re-encoded or re-named. Treat
 		// as a duplicate rather than creating a second record for it.
-		saveOrphan(filePath, fileSize, hash, title, db.OrphanDuplicate, podcast.ID, matchedItem.ID, result, &result.Duplicate)
+		saveOrphan(existing, filePath, fileSize, hash, title, db.OrphanDuplicate, podcast.ID, matchedItem.ID, result, &result.Duplicate)
 		return
 	}
 
@@ -504,20 +515,32 @@ func ingestOneFile(dataPath string, filePath string, fileSize int64, caches *ing
 	}
 	hashes[hash] = newItem.ID
 	titles[normalizeForMatch(title)] = newItem
-	saveOrphan(filePath, fileSize, hash, title, db.OrphanAutoCreated, podcast.ID, newItem.ID, result, &result.AutoCreated)
+	saveOrphan(existing, filePath, fileSize, hash, title, db.OrphanAutoCreated, podcast.ID, newItem.ID, result, &result.AutoCreated)
 }
 
-func saveOrphan(filePath string, fileSize int64, hash string, title string, status db.OrphanFileStatus, podcastID string, podcastItemID string, result *IngestLibraryResult, counter *int) {
-	orphan := &db.OrphanFile{
-		FilePath:      filePath,
-		FileSize:      fileSize,
-		FileHash:      hash,
-		DetectedTitle: title,
-		Status:        status,
-		PodcastID:     podcastID,
-		PodcastItemID: podcastItemID,
+// saveOrphan writes the outcome of matching a file. If existing is non-nil
+// (a previously Unmatched record for this same path), it's updated in place
+// rather than inserted again - FilePath has a unique index, so a second
+// insert for the same path would fail.
+func saveOrphan(existing *db.OrphanFile, filePath string, fileSize int64, hash string, title string, status db.OrphanFileStatus, podcastID string, podcastItemID string, result *IngestLibraryResult, counter *int) {
+	orphan := existing
+	if orphan == nil {
+		orphan = &db.OrphanFile{FilePath: filePath}
 	}
-	if err := db.CreateOrphanFile(orphan); err != nil {
+	orphan.FileSize = fileSize
+	orphan.FileHash = hash
+	orphan.DetectedTitle = title
+	orphan.Status = status
+	orphan.PodcastID = podcastID
+	orphan.PodcastItemID = podcastItemID
+
+	var err error
+	if existing == nil {
+		err = db.CreateOrphanFile(orphan)
+	} else {
+		err = db.UpdateOrphanFile(orphan)
+	}
+	if err != nil {
 		result.Errors++
 		return
 	}

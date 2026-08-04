@@ -18,3 +18,9 @@ assets/*
 keys/*
 backups/*
 nodemon.json
+# Patch files - one-time use, not part of the project
+*.patch
+
+# macOS metadata files
+._*
+.DS_Store
