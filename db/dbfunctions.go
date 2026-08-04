@@ -376,6 +376,35 @@ func UpdateOrphanFile(orphanFile *OrphanFile) error {
 	return tx.Error
 }
 
+func GetOrphanFileById(id string) (*OrphanFile, error) {
+	var orphanFile OrphanFile
+	result := DB.Where("id = ?", id).First(&orphanFile)
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	return &orphanFile, result.Error
+}
+
+// GetOrphanFilesByStatus returns a page of OrphanFile records for the given
+// status, plus the total count matching that status (for pagination).
+//
+// Deliberately uses an explicit "status = ?" condition rather than GORM's
+// struct-based Where(&OrphanFile{Status: status}) - OrphanUnmatched is 0,
+// and GORM silently omits zero-value fields from struct conditions, which
+// would have matched every status instead of just Unmatched.
+func GetOrphanFilesByStatus(status OrphanFileStatus, page int, count int) ([]OrphanFile, int64, error) {
+	var orphanFiles []OrphanFile
+	var totalCount int64
+
+	if err := DB.Model(&OrphanFile{}).Where("status = ?", status).Count(&totalCount).Error; err != nil {
+		return nil, 0, err
+	}
+
+	offset := (page - 1) * count
+	result := DB.Where("status = ?", status).Order("file_path asc").Offset(offset).Limit(count).Find(&orphanFiles)
+	return orphanFiles, totalCount, result.Error
+}
+
 func GetOrphanFileCountsByStatus() (map[OrphanFileStatus]int64, error) {
 	type row struct {
 		Status OrphanFileStatus

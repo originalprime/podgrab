@@ -667,3 +667,45 @@ func IngestLibrary(c *gin.Context) {
 	go service.IngestLibrary()
 	c.JSON(200, gin.H{"message": "Library ingest started"})
 }
+
+type AssignOrphanFileModel struct {
+	PodcastId string `json:"podcastId" binding:"required"`
+}
+
+// AssignOrphanFileToPodcast resolves an unmatched file by telling Podgrab
+// which podcast it belongs to.
+func AssignOrphanFileToPodcast(c *gin.Context) {
+	id := c.Param("id")
+	var model AssignOrphanFileModel
+	if err := c.ShouldBindJSON(&model); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := service.AssignOrphanFileToPodcast(id, model.PodcastId); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "Success"})
+}
+
+// IgnoreOrphanFile marks a file as reviewed with no action needed.
+func IgnoreOrphanFile(c *gin.Context) {
+	id := c.Param("id")
+	if err := service.IgnoreOrphanFile(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "Success"})
+}
+
+// DeleteOrphanFile permanently deletes a confirmed-duplicate file from disk.
+// Only ever reachable for files already flagged as duplicates - see
+// service.DeleteOrphanFileFromDisk for the actual safety check.
+func DeleteOrphanFile(c *gin.Context) {
+	id := c.Param("id")
+	if err := service.DeleteOrphanFileFromDisk(id); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "Success"})
+}

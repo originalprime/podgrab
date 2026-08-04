@@ -281,6 +281,139 @@ func recordNonAudioFile(dataPath string, filePath string, fileSize int64, result
 	result.NonAudio++
 }
 
+// AssignOrphanFileToPodcast resolves an OrphanUnmatched file by manually
+// telling Podgrab which podcast it belongs to - used when a file's folder
+// name didn't match anything automatically (e.g. it wasn't under a
+// recognized podcast folder at all). Runs the same duplicate-check ->
+// title-match -> create-new decision tree that automatic ingestion uses,
+// just triggered by the user instead of the folder-name match.
+func AssignOrphanFileToPodcast(orphanFileId string, podcastId string) error {
+	orphan, err := db.GetOrphanFileById(orphanFileId)
+	if err != nil {
+		return err
+	}
+	if orphan == nil {
+		return fmt.Errorf("orphan file not found: %s", orphanFileId)
+	}
+	if orphan.Status != db.OrphanUnmatched {
+		return fmt.Errorf("orphan file is not in an unmatched state")
+	}
+
+	var podcast db.Podcast
+	if err := db.GetPodcastById(podcastId, &podcast); err != nil {
+		return err
+	}
+
+	hash := orphan.FileHash
+	if hash == "" {
+		hash, err = computeFileHash(orphan.FilePath)
+		if err != nil {
+			return err
+		}
+	}
+
+	hashes, err := db.GetPodcastItemHashesByPodcastId(podcast.ID)
+	if err != nil {
+		return err
+	}
+	if existingItemID, isDuplicate := hashes[hash]; isDuplicate {
+		orphan.Status = db.OrphanDuplicate
+		orphan.PodcastID = podcast.ID
+		orphan.PodcastItemID = existingItemID
+		orphan.FileHash = hash
+		return db.UpdateOrphanFile(orphan)
+	}
+
+	var items []db.PodcastItem
+	if err := db.GetAllPodcastItemsByPodcastId(podcast.ID, &items); err != nil {
+		return err
+	}
+	normalizedTitle := normalizeForMatch(orphan.DetectedTitle)
+	for i := range items {
+		if normalizeForMatch(items[i].Title) != normalizedTitle {
+			continue
+		}
+		if items[i].DownloadPath == "" {
+			items[i].DownloadPath = orphan.FilePath
+			items[i].FileSize = orphan.FileSize
+			items[i].FileHash = hash
+			items[i].DownloadStatus = db.Downloaded
+			items[i].DownloadDate = time.Now()
+			if err := db.UpdatePodcastItem(&items[i]); err != nil {
+				return err
+			}
+			orphan.Status = db.OrphanAutoLinked
+		} else {
+			orphan.Status = db.OrphanDuplicate
+		}
+		orphan.PodcastID = podcast.ID
+		orphan.PodcastItemID = items[i].ID
+		orphan.FileHash = hash
+		return db.UpdateOrphanFile(orphan)
+	}
+
+	pubDate := time.Now()
+	if stat, statErr := os.Stat(orphan.FilePath); statErr == nil {
+		pubDate = stat.ModTime()
+	}
+	newItem := &db.PodcastItem{
+		PodcastID:      podcast.ID,
+		Title:          orphan.DetectedTitle,
+		GUID:           "podgrab-ingested-" + uuid.NewV4().String(),
+		PubDate:        pubDate,
+		DownloadDate:   time.Now(),
+		DownloadPath:   orphan.FilePath,
+		DownloadStatus: db.Downloaded,
+		FileSize:       orphan.FileSize,
+		FileHash:       hash,
+	}
+	if err := db.CreatePodcastItem(newItem); err != nil {
+		return err
+	}
+	orphan.Status = db.OrphanAutoCreated
+	orphan.PodcastID = podcast.ID
+	orphan.PodcastItemID = newItem.ID
+	orphan.FileHash = hash
+	return db.UpdateOrphanFile(orphan)
+}
+
+// IgnoreOrphanFile marks a file as reviewed with no action needed - it stays
+// on disk untouched and won't be suggested for review again.
+func IgnoreOrphanFile(orphanFileId string) error {
+	orphan, err := db.GetOrphanFileById(orphanFileId)
+	if err != nil {
+		return err
+	}
+	if orphan == nil {
+		return fmt.Errorf("orphan file not found: %s", orphanFileId)
+	}
+	orphan.Status = db.OrphanIgnored
+	return db.UpdateOrphanFile(orphan)
+}
+
+// DeleteOrphanFileFromDisk permanently deletes a confirmed-duplicate file
+// from disk. Deliberately restricted to files already flagged OrphanDuplicate
+// - this is the only place in the whole ingest feature that deletes
+// anything, and only after a human has asked for it.
+func DeleteOrphanFileFromDisk(orphanFileId string) error {
+	orphan, err := db.GetOrphanFileById(orphanFileId)
+	if err != nil {
+		return err
+	}
+	if orphan == nil {
+		return fmt.Errorf("orphan file not found: %s", orphanFileId)
+	}
+	if orphan.Status != db.OrphanDuplicate {
+		return fmt.Errorf("refusing to delete a file that isn't a confirmed duplicate")
+	}
+	if err := os.Remove(orphan.FilePath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	orphan.Status = db.OrphanIgnored
+	orphan.Notes = "Deleted from disk on " + time.Now().Format(time.RFC3339)
+	return db.UpdateOrphanFile(orphan)
+}
+
 func ingestOneFile(dataPath string, filePath string, fileSize int64, caches *ingestCaches, result *IngestLibraryResult) {
 	folderName := podcastFolderName(dataPath, filePath)
 	podcast, podcastKnown := caches.podcastByFolder[normalizeForMatch(folderName)]

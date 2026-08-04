@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -198,6 +199,69 @@ func SettingsPage(c *gin.Context) {
 		"orphanCounts": orphanCounts,
 	})
 
+}
+
+// OrphanFilesPage lists files the library-ingest scan flagged for manual
+// review (unmatched files, confirmed duplicates, and non-audio files found
+// along the way), filterable by status and paginated so a large backlog
+// doesn't get dumped onto one page at once.
+func OrphanFilesPage(c *gin.Context) {
+	setting := c.MustGet("setting").(*db.Setting)
+
+	status, err := strconv.Atoi(c.DefaultQuery("status", "0"))
+	if err != nil {
+		status = 0
+	}
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page < 1 {
+		page = 1
+	}
+	const pageSize = 50
+
+	orphanFiles, totalCount, err := db.GetOrphanFilesByStatus(db.OrphanFileStatus(status), page, pageSize)
+	if err != nil {
+		fmt.Println("Error loading orphan files: ", err.Error())
+	}
+	totalPages := int(math.Ceil(float64(totalCount) / float64(pageSize)))
+	previousPage := 0
+	if page > 1 {
+		previousPage = page - 1
+	}
+	nextPage := 0
+	if page < totalPages {
+		nextPage = page + 1
+	}
+
+	var itemIds []string
+	for _, o := range orphanFiles {
+		if o.PodcastItemID != "" {
+			itemIds = append(itemIds, o.PodcastItemID)
+		}
+	}
+	itemTitles := make(map[string]string)
+	if len(itemIds) > 0 {
+		if items, err := db.GetAllPodcastItemsByIds(itemIds); err == nil {
+			for _, item := range *items {
+				itemTitles[item.ID] = item.Title
+			}
+		}
+	}
+
+	podcasts := service.GetAllPodcasts("title")
+
+	c.HTML(http.StatusOK, "orphans.html", gin.H{
+		"title":        "Review Library Files",
+		"setting":      setting,
+		"orphanFiles":  orphanFiles,
+		"itemTitles":   itemTitles,
+		"podcasts":     podcasts,
+		"status":       status,
+		"page":         page,
+		"previousPage": previousPage,
+		"nextPage":     nextPage,
+		"totalPages":   totalPages,
+		"totalCount":   totalCount,
+	})
 }
 func BackupsPage(c *gin.Context) {
 
