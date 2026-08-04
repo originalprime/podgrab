@@ -405,6 +405,16 @@ func GetOrphanFilesByStatus(status OrphanFileStatus, page int, count int) ([]Orp
 	return orphanFiles, totalCount, result.Error
 }
 
+// GetAllOrphanFilesByStatus returns every record for a status with no
+// pagination - used for bulk operations (assign-a-whole-folder,
+// delete-all-duplicates) that need to act on the complete set at once
+// rather than one page of it.
+func GetAllOrphanFilesByStatus(status OrphanFileStatus) ([]OrphanFile, error) {
+	var orphanFiles []OrphanFile
+	result := DB.Where("status = ?", status).Find(&orphanFiles)
+	return orphanFiles, result.Error
+}
+
 func GetOrphanFileCountsByStatus() (map[OrphanFileStatus]int64, error) {
 	type row struct {
 		Status OrphanFileStatus

@@ -195,6 +195,8 @@ func main() {
 	router.POST("/orphans/:id/assign", controllers.AssignOrphanFileToPodcast)
 	router.POST("/orphans/:id/ignore", controllers.IgnoreOrphanFile)
 	router.POST("/orphans/:id/delete", controllers.DeleteOrphanFile)
+	router.POST("/orphans/bulk/assignFolder", controllers.BulkAssignFolderToPodcast)
+	router.POST("/orphans/bulk/deleteDuplicates", controllers.BulkDeleteDuplicates)
 	router.GET("/backups", controllers.BackupsPage)
 	router.POST("/opml", controllers.UploadOpml)
 	router.GET("/opml", controllers.GetOmpl)

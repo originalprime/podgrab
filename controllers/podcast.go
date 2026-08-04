@@ -709,3 +709,37 @@ func DeleteOrphanFile(c *gin.Context) {
 	}
 	c.JSON(200, gin.H{"message": "Success"})
 }
+
+type BulkAssignFolderModel struct {
+	FolderName string `json:"folderName" binding:"required"`
+	PodcastId  string `json:"podcastId" binding:"required"`
+}
+
+// BulkAssignFolderToPodcast assigns every unmatched file under one folder to
+// a podcast in a single action - the practical fix for reviewing hundreds
+// of files from one show without clicking "Assign" hundreds of times.
+func BulkAssignFolderToPodcast(c *gin.Context) {
+	var model BulkAssignFolderModel
+	if err := c.ShouldBindJSON(&model); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	count, err := service.AssignFolderToPodcast(model.FolderName, model.PodcastId)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "Success", "assigned": count})
+}
+
+// BulkDeleteDuplicates permanently deletes every file currently flagged as
+// a confirmed duplicate. Same restriction as the single-file delete - only
+// ever touches files already confirmed as duplicates.
+func BulkDeleteDuplicates(c *gin.Context) {
+	count, freedBytes, err := service.DeleteAllDuplicatesFromDisk()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"message": "Success", "deleted": count, "freedBytes": freedBytes})
+}

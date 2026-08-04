@@ -44,6 +44,39 @@
         </p>
         <p>{{.totalCount}} file(s) in this view.</p>
 
+        {{if eq .status 0}}
+        <div class="row">
+            <h4>Assign an entire folder at once</h4>
+            <p>Files are grouped by their top-level folder on disk. Pick the podcast each folder belongs to and assign every file in it in one action.</p>
+            <table class="u-full-width">
+                <thead><th>Folder</th><th>Unmatched Files</th><th></th></thead>
+                <tbody>
+                {{range .folderGroups}}
+                    <tr>
+                        <td>{{.FolderName}}</td>
+                        <td>{{.Count}}</td>
+                        <td>
+                            <select class="folder-podcast-select">
+                                <option value="">Select a podcast...</option>
+                                {{range $.podcasts}}
+                                <option value="{{.ID}}">{{.Title}}</option>
+                                {{end}}
+                            </select>
+                            <button class="button" data-folder="{{.FolderName}}" onclick="assignFolder(this)">Assign All In Folder</button>
+                        </td>
+                    </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+
+        {{if eq .status 3}}
+        <div class="row">
+            <button class="button button-delete" onclick="deleteAllDuplicates()">Delete ALL Duplicates From Disk</button>
+        </div>
+        {{end}}
+
         <table class="u-full-width">
             <thead>
                 <th>File</th>
@@ -70,6 +103,7 @@
                             <button class="button" onclick="ignoreOrphan('{{.ID}}')">Ignore</button>
                         {{else if eq .Status 3}}
                             Duplicate of: {{index $itemTitles .PodcastItemID}}
+                            <br><span class="filepath">Kept file: {{index $.itemPaths .PodcastItemID}}</span>
                             <button class="button button-delete" onclick="deleteOrphan('{{.ID}}')">Delete From Disk</button>
                             <button class="button" onclick="ignoreOrphan('{{.ID}}')">Keep, Stop Flagging</button>
                         {{else if eq .Status 1}}
@@ -136,6 +170,41 @@ function deleteOrphan(id){
     })
     .catch(function(error){
         var message = (error.response && error.response.data && error.response.data.error) || 'Failed to delete.';
+        Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+    });
+}
+function assignFolder(button){
+    var folderName = button.getAttribute('data-folder');
+    var select = button.parentElement.querySelector('.folder-podcast-select');
+    var podcastId = select.value;
+    if(!podcastId){
+        Vue.toasted.show('Pick a podcast first.', {theme: "bubble", position: "top-right", type: "error", duration: 4000});
+        return;
+    }
+    if(!confirm('Assign every unmatched file in "' + folderName + '" to the selected podcast?')){
+        return;
+    }
+    axios.post('/orphans/bulk/assignFolder', {folderName: folderName, podcastId: podcastId})
+    .then(function(response){
+        Vue.toasted.show('Assigned ' + response.data.assigned + ' file(s).', {theme: "bubble", position: "top-right", type: "success", duration: 5000});
+        location.reload();
+    })
+    .catch(function(error){
+        var message = (error.response && error.response.data && error.response.data.error) || 'Failed to assign folder.';
+        Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+    });
+}
+function deleteAllDuplicates(){
+    if(!confirm('This permanently deletes EVERY file currently flagged as a duplicate, across all pages. This cannot be undone. Continue?')){
+        return;
+    }
+    axios.post('/orphans/bulk/deleteDuplicates')
+    .then(function(response){
+        Vue.toasted.show('Deleted ' + response.data.deleted + ' file(s).', {theme: "bubble", position: "top-right", type: "success", duration: 5000});
+        location.reload();
+    })
+    .catch(function(error){
+        var message = (error.response && error.response.data && error.response.data.error) || 'Failed to delete duplicates.';
         Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
     });
 }
