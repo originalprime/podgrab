@@ -159,8 +159,14 @@ function ignoreOrphan(id){
         Vue.toasted.show('Failed to update.', {theme: "bubble", position: "top-right", type: "error", duration: 5000});
     });
 }
+function formatBytes(bytes){
+    if(!bytes || bytes <= 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
 function deleteOrphan(id){
-    if(!confirm('This permanently deletes the file from disk. This cannot be undone. Continue?')){
+    if(!confirm('This permanently deletes the file from disk. This cannot be undone. Note: depending on your storage setup (e.g. filesystem snapshots, backup tools), the disk space may not be reclaimed immediately even after deletion. Continue?')){
         return;
     }
     axios.post('/orphans/' + id + '/delete')
@@ -195,17 +201,34 @@ function assignFolder(button){
     });
 }
 function deleteAllDuplicates(){
-    if(!confirm('This permanently deletes EVERY file currently flagged as a duplicate, across all pages. This cannot be undone. Continue?')){
-        return;
-    }
-    axios.post('/orphans/bulk/deleteDuplicates')
+    axios.get('/orphans/duplicatesSummary')
     .then(function(response){
-        Vue.toasted.show('Deleted ' + response.data.deleted + ' file(s).', {theme: "bubble", position: "top-right", type: "success", duration: 5000});
-        location.reload();
+        var count = response.data.count;
+        var sizeText = formatBytes(response.data.totalBytes);
+        if(count === 0){
+            Vue.toasted.show('No duplicates to delete.', {theme: "bubble", position: "top-right", type: "info", duration: 4000});
+            return;
+        }
+        var warning = 'This will permanently delete ' + count + ' file(s), freeing approximately ' + sizeText + ' of disk space. This cannot be undone.\n\n'
+            + 'Note: depending on your storage setup - filesystem snapshots (e.g. ZFS, Btrfs), backup tools, or similar - the underlying disk space may not become immediately available even after these files are deleted. Check your snapshot/backup retention if you need the space back right away.\n\n'
+            + 'Type DELETE (all caps) to confirm.';
+        var typed = prompt(warning);
+        if(typed !== 'DELETE'){
+            Vue.toasted.show('Cancelled - nothing was deleted.', {theme: "bubble", position: "top-right", type: "info", duration: 4000});
+            return;
+        }
+        axios.post('/orphans/bulk/deleteDuplicates')
+        .then(function(response){
+            Vue.toasted.show('Deleted ' + response.data.deleted + ' file(s), freed ' + formatBytes(response.data.freedBytes) + '.', {theme: "bubble", position: "top-right", type: "success", duration: 6000});
+            location.reload();
+        })
+        .catch(function(error){
+            var message = (error.response && error.response.data && error.response.data.error) || 'Failed to delete duplicates.';
+            Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+        });
     })
     .catch(function(error){
-        var message = (error.response && error.response.data && error.response.data.error) || 'Failed to delete duplicates.';
-        Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+        Vue.toasted.show('Failed to load duplicate summary.', {theme: "bubble", position: "top-right", type: "error", duration: 5000});
     });
 }
 </script>
