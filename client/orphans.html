@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PodGrab</title>
+    {{template "commoncss" .}}
+    <style>
+        .button-delete{
+            background-color: indianred;
+            color:wheat;
+        }
+        .filepath{
+            font-family: monospace;
+            font-size: 0.85em;
+            word-break: break-all;
+        }
+        .status-tabs a{
+            margin-right: 20px;
+        }
+        .status-tabs a.active{
+            font-weight: bold;
+            text-decoration: underline;
+        }
+        select, .button{
+            margin-bottom: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+{{template "navbar" .}}
+<br>
+<div class="row" id="app">
+    <div class="columns twelve">
+        <p class="status-tabs">
+            <a href="/orphans?status=0" class="{{if eq .status 0}}active{{end}}">Unmatched</a>
+            <a href="/orphans?status=3" class="{{if eq .status 3}}active{{end}}">Duplicates</a>
+            <a href="/orphans?status=5" class="{{if eq .status 5}}active{{end}}">Non-Audio Files</a>
+            <a href="/orphans?status=1" class="{{if eq .status 1}}active{{end}}">Auto-Linked</a>
+            <a href="/orphans?status=2" class="{{if eq .status 2}}active{{end}}">Auto-Created</a>
+            <a href="/orphans?status=4" class="{{if eq .status 4}}active{{end}}">Ignored</a>
+        </p>
+        <p>{{.totalCount}} file(s) in this view.</p>
+
+        <table class="u-full-width">
+            <thead>
+                <th>File</th>
+                <th>Size</th>
+                <th>Detected Title</th>
+                <th></th>
+            </thead>
+            <tbody>
+            {{$itemTitles := .itemTitles}}
+            {{range .orphanFiles}}
+                <tr>
+                    <td class="filepath">{{.FilePath}}</td>
+                    <td>{{formatFileSize .FileSize}}</td>
+                    <td>{{.DetectedTitle}}</td>
+                    <td>
+                        {{if eq .Status 0}}
+                            <select id="podcast-select-{{.ID}}">
+                                <option value="">Select a podcast...</option>
+                                {{range $.podcasts}}
+                                <option value="{{.ID}}">{{.Title}}</option>
+                                {{end}}
+                            </select>
+                            <button class="button" onclick="assignOrphan('{{.ID}}')">Assign</button>
+                            <button class="button" onclick="ignoreOrphan('{{.ID}}')">Ignore</button>
+                        {{else if eq .Status 3}}
+                            Duplicate of: {{index $itemTitles .PodcastItemID}}
+                            <button class="button button-delete" onclick="deleteOrphan('{{.ID}}')">Delete From Disk</button>
+                            <button class="button" onclick="ignoreOrphan('{{.ID}}')">Keep, Stop Flagging</button>
+                        {{else if eq .Status 1}}
+                            Linked to: {{index $itemTitles .PodcastItemID}}
+                        {{else if eq .Status 2}}
+                            Created episode: {{index $itemTitles .PodcastItemID}}
+                        {{else if eq .Status 5}}
+                            {{.Notes}}
+                        {{end}}
+                    </td>
+                </tr>
+            {{end}}
+            </tbody>
+        </table>
+
+        <div>
+            {{if gt .previousPage 0}}
+                <a href="/orphans?status={{.status}}&page={{.previousPage}}" class="button">Previous</a>
+            {{end}}
+            <span>Page {{.page}} of {{.totalPages}}</span>
+            {{if gt .nextPage 0}}
+                <a href="/orphans?status={{.status}}&page={{.nextPage}}" class="button">Next</a>
+            {{end}}
+        </div>
+    </div>
+</div>
+
+{{template "scripts"}}
+<script>
+function assignOrphan(id){
+    var podcastId = document.getElementById('podcast-select-' + id).value;
+    if(!podcastId){
+        Vue.toasted.show('Pick a podcast first.', {theme: "bubble", position: "top-right", type: "error", duration: 4000});
+        return;
+    }
+    axios.post('/orphans/' + id + '/assign', {podcastId: podcastId})
+    .then(function(response){
+        Vue.toasted.show('Assigned.', {theme: "bubble", position: "top-right", type: "success", duration: 3000});
+        location.reload();
+    })
+    .catch(function(error){
+        var message = (error.response && error.response.data && error.response.data.error) || 'Failed to assign.';
+        Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+    });
+}
+function ignoreOrphan(id){
+    axios.post('/orphans/' + id + '/ignore')
+    .then(function(response){
+        Vue.toasted.show('Marked as ignored.', {theme: "bubble", position: "top-right", type: "success", duration: 3000});
+        location.reload();
+    })
+    .catch(function(error){
+        Vue.toasted.show('Failed to update.', {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+    });
+}
+function deleteOrphan(id){
+    if(!confirm('This permanently deletes the file from disk. This cannot be undone. Continue?')){
+        return;
+    }
+    axios.post('/orphans/' + id + '/delete')
+    .then(function(response){
+        Vue.toasted.show('File deleted.', {theme: "bubble", position: "top-right", type: "success", duration: 3000});
+        location.reload();
+    })
+    .catch(function(error){
+        var message = (error.response && error.response.data && error.response.data.error) || 'Failed to delete.';
+        Vue.toasted.show(message, {theme: "bubble", position: "top-right", type: "error", duration: 5000});
+    });
+}
+</script>
+</body>
+</html>
