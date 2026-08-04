@@ -267,6 +267,12 @@ func IngestLibrary() IngestLibraryResult {
 		fmt.Println("Error walking assets directory during library ingest: ", walkErr.Error())
 	}
 
+	// Ingest just changed which files are "known" (linked/created episodes)
+	// vs orphan - refresh the cached disk-usage numbers so Settings reflects
+	// that immediately rather than showing stale pre-ingest figures until
+	// whatever next happens to trigger a scan.
+	RunDiskUsageScan()
+
 	return result
 }
 
@@ -476,7 +482,24 @@ func AssignFolderToPodcast(folderName string, podcastId string) (int, error) {
 		}
 		assigned++
 	}
+	// One rescan for the whole batch, not one per file.
+	go RunDiskUsageScan()
 	return assigned, nil
+}
+
+// GetDuplicatesSummary reports how many files are currently flagged as
+// duplicates and their total size, without deleting anything - used to show
+// a real preview before the bulk-delete confirmation.
+func GetDuplicatesSummary() (int, int64, error) {
+	duplicates, err := db.GetAllOrphanFilesByStatus(db.OrphanDuplicate)
+	if err != nil {
+		return 0, 0, err
+	}
+	var totalBytes int64
+	for _, d := range duplicates {
+		totalBytes += d.FileSize
+	}
+	return len(duplicates), totalBytes, nil
 }
 
 // DeleteAllDuplicatesFromDisk permanently deletes every file currently
@@ -498,6 +521,8 @@ func DeleteAllDuplicatesFromDisk() (int, int64, error) {
 		deletedCount++
 		freedBytes += duplicates[i].FileSize
 	}
+	// One rescan for the whole batch, not one per file.
+	go RunDiskUsageScan()
 	return deletedCount, freedBytes, nil
 }
 

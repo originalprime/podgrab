@@ -685,6 +685,7 @@ func AssignOrphanFileToPodcast(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	go service.RunDiskUsageScan()
 	c.JSON(200, gin.H{"message": "Success"})
 }
 
@@ -707,6 +708,7 @@ func DeleteOrphanFile(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	go service.RunDiskUsageScan()
 	c.JSON(200, gin.H{"message": "Success"})
 }
 
@@ -730,6 +732,18 @@ func BulkAssignFolderToPodcast(c *gin.Context) {
 		return
 	}
 	c.JSON(200, gin.H{"message": "Success", "assigned": count})
+}
+
+// GetDuplicatesSummary reports the count and total size of everything
+// currently flagged as a duplicate, without deleting anything - lets the UI
+// show a real preview before the irreversible bulk-delete action.
+func GetDuplicatesSummary(c *gin.Context) {
+	count, totalBytes, err := service.GetDuplicatesSummary()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(200, gin.H{"count": count, "totalBytes": totalBytes})
 }
 
 // BulkDeleteDuplicates permanently deletes every file currently flagged as
